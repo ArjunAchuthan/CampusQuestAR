@@ -1,0 +1,10 @@
+{
+  "description": "Engage in an immersive AR treasure hunt across campus with intuitive navigation, real-time clues, and progress tracking for a fun, interactive experience.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
