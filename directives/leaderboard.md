@@ -6,7 +6,7 @@ Replace `LeaderboardScreen`'s skeleton rows with a live, ranked list of particip
 ## Inputs
 - `src/components/screens/LeaderboardScreen.tsx` — already has the row layout (`rank / avatar+name / time`, `colGrid = '36px 1fr 58px'`) and a separate highlighted "Your Position" section; both currently render skeleton placeholders
 - Each user's `progress` doc: needs a `startedAt` (first login or first geofence unlock — decide which and apply consistently) and `finishedAt` (set when location 7's task completes) timestamp
-- `ProfileScreen`'s "Best Time" and "Rank" stat cards (currently skeletons) should read from the same source as this screen
+- `ProfileScreen`'s **Time** and **Rank** cards must read from the same source as this screen; do not display an estimated rank or an Attempts field
 
 ## Tools
 - Firestore query: `progress` collection where `finishedAt != null`, ordered by `(finishedAt - startedAt)` ascending — since Firestore can't compute a derived field in the query itself, either store a precomputed `totalTimeMs` field (written once at finish, recommended) or compute and sort client-side after fetching finished participants
@@ -16,7 +16,7 @@ Replace `LeaderboardScreen`'s skeleton rows with a live, ranked list of particip
 ## Outputs
 - Ranked rows for all participants with `finishedAt` set; participants still mid-hunt don't appear in the main ranked list (there's no partial-progress ranking in the current design)
 - "Your Position" section shows the current user's own rank/time — reuse the existing accent-tinted highlight styling exactly, no new visual treatment
-- `ProfileScreen`'s "Best Time" and "Rank" cards read from this same computed data
+- `ProfileScreen`'s **Time** and **Rank** cards read from this same computed data. Participants without a completed run display `—` until their finished run is ranked.
 
 ## Edge cases
 - **Ties**: decide a tiebreaker up front (e.g. `finishedAt` timestamp as secondary sort) so rank isn't ambiguous or flickering between two equal times

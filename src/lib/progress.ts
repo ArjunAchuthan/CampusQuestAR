@@ -10,7 +10,29 @@ import {
   runTransaction,
 } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
-import type { QuestLocation, ParticipantProgress } from '@/types'
+import type { LatLng, QuestLocation, ParticipantProgress } from '@/types'
+
+/**
+ * Development-only GPS fixture. Add ?testCoords=lat,lng to the app URL to
+ * place all seven geofences at one test point without changing Firestore.
+ */
+function applyTestCoordinates(locations: QuestLocation[]): QuestLocation[] {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return locations
+
+  const raw = new URLSearchParams(window.location.search).get('testCoords')
+  if (!raw) return locations
+
+  const [latRaw, lngRaw] = raw.split(',')
+  const lat = Number(latRaw)
+  const lng = Number(lngRaw)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    console.warn('Ignoring invalid testCoords query parameter. Expected ?testCoords=latitude,longitude')
+    return locations
+  }
+
+  const coords: LatLng = { lat, lng }
+  return locations.map((location) => ({ ...location, coords }))
+}
 
 // Default fallback metadata for the 7 locations if Firestore documents only contain coords & order
 export const DEFAULT_LOCATIONS_META: Record<number, { name: string; clue: string; hint: string }> = {
@@ -79,7 +101,7 @@ export async function fetchQuestLocations(): Promise<QuestLocation[]> {
       })
     })
 
-    return list.sort((a, b) => a.order - b.order)
+    return applyTestCoordinates(list.sort((a, b) => a.order - b.order))
   } catch (err) {
     console.error('Error fetching locations:', err)
     return []
@@ -189,7 +211,7 @@ export function useQuestProgress(uid: string | null | undefined) {
           })
         })
         list.sort((a, b) => a.order - b.order)
-        setLocations(list)
+        setLocations(applyTestCoordinates(list))
       },
       (err) => {
         console.warn('Locations snapshot error, loading fallback:', err)
@@ -251,7 +273,9 @@ export function useQuestProgress(uid: string | null | undefined) {
   }, [uid])
 
   const currentLocationIndex = progress?.currentLocationIndex ?? 0
-  const currentLocation = locations[currentLocationIndex] || locations[0] || null
+  const currentLocation = Number.isInteger(currentLocationIndex) && currentLocationIndex >= 0
+    ? locations[currentLocationIndex] ?? null
+    : null
 
   const isCurrentUnlocked = Boolean(
     currentLocation && progress?.unlockedLocations?.[currentLocation.id]

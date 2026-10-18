@@ -22,6 +22,7 @@ Allow event leads to create participant accounts without opening self-registrati
 ## Outputs
 - Admin can log in (same `LoginScreen` component is fine, reused — an admin is just a user whose UID is in `admins`) and be redirected to `/admin/register` instead of the normal dashboard if their UID has admin rights
 - Each successful registration creates both the Auth account and the progress doc in one step, so there's no gap where a user exists in Auth but not in Firestore
+- Each participant profile is stored at `users/{sixDigitId}` and includes the Firebase Auth UID in its `uid` field. Keep `progress/{uid}` keyed by Auth UID for internal progress joins. Show the six-digit document ID in registration success details and rosters. The registration desk migrates every legacy `users/{uid}` document (including non-participant profiles) to a unique numeric document ID as its roster loads; profile lookups also migrate individual legacy documents.
 - Registering a candidate does **not** change the admin's own logged-in session at any point
 
 ## Edge cases

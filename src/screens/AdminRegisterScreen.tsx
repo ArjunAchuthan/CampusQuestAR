@@ -7,6 +7,7 @@ import {
 } from '@/lib/admin'
 import type { ParticipantUser } from '@/types'
 import { Skel } from '@/components/common/Skeleton'
+import { SignOutButton } from '@/components/shell/TopBanner'
 
 export interface AdminRegisterScreenProps {
   onLogout: () => void
@@ -22,6 +23,7 @@ export function AdminRegisterScreen({ onLogout }: AdminRegisterScreenProps) {
   // Last registered user credentials banner for easy copying
   const [lastCreated, setLastCreated] = useState<{
     name: string
+    participantId: string
     email: string
     password: string
   } | null>(null)
@@ -99,6 +101,7 @@ export function AdminRegisterScreen({ onLogout }: AdminRegisterScreenProps) {
       } else {
         setLastCreated({
           name: displayName.trim(),
+          participantId: res.participantId || '',
           email: email.trim().toLowerCase(),
           password: passToUse,
         })
@@ -118,7 +121,7 @@ export function AdminRegisterScreen({ onLogout }: AdminRegisterScreenProps) {
 
   const handleCopyCredentials = () => {
     if (!lastCreated) return
-    const text = `Campus Quest AR Credentials\nName: ${lastCreated.name}\nEmail: ${lastCreated.email}\nPassword: ${lastCreated.password}`
+    const text = `Campus Quest AR Credentials\nName: ${lastCreated.name}\nPlayer ID: ${lastCreated.participantId}\nEmail: ${lastCreated.email}\nPassword: ${lastCreated.password}`
     navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2500)
@@ -128,7 +131,8 @@ export function AdminRegisterScreen({ onLogout }: AdminRegisterScreenProps) {
     const q = searchQuery.toLowerCase()
     return (
       p.displayName.toLowerCase().includes(q) ||
-      p.email.toLowerCase().includes(q)
+      p.email.toLowerCase().includes(q) ||
+      p.participantId?.includes(q)
     )
   })
 
@@ -145,20 +149,23 @@ export function AdminRegisterScreen({ onLogout }: AdminRegisterScreenProps) {
       }}
     >
       {/* Top Header */}
-      <div style={{ marginBottom: 28 }}>
-        <div
-          style={{
-            fontSize: 22,
-            fontWeight: 700,
-            color: '#F2F2F7',
-            letterSpacing: '-0.02em',
-          }}
-        >
-          Participant Registration
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 28 }}>
+        <div>
+          <div
+            style={{
+              fontSize: 22,
+              fontWeight: 700,
+              color: '#F2F2F7',
+              letterSpacing: '-0.02em',
+            }}
+          >
+            Participant Registration
+          </div>
+          <div className="label-caps" style={{ color: 'var(--accent)', marginTop: 4 }}>
+            Admin Panel
+          </div>
         </div>
-        <div className="label-caps" style={{ color: 'var(--accent)', marginTop: 4 }}>
-          Admin Panel
-        </div>
+        <SignOutButton onClick={onLogout} />
       </div>
 
       {/* Registration Form Card */}
@@ -352,6 +359,12 @@ export function AdminRegisterScreen({ onLogout }: AdminRegisterScreenProps) {
             </div>
             <div>
               <span style={{ color: 'rgba(242,242,247,0.4)', display: 'block', fontSize: 11 }}>
+                PLAYER ID
+              </span>
+              <code style={{ color: '#8BBCD4', fontWeight: 700, fontFamily: 'monospace' }}>{lastCreated.participantId || 'Assigning…'}</code>
+            </div>
+            <div>
+              <span style={{ color: 'rgba(242,242,247,0.4)', display: 'block', fontSize: 11 }}>
                 EMAIL
               </span>
               <span style={{ color: '#F2F2F7', fontWeight: 500 }}>{lastCreated.email}</span>
@@ -482,6 +495,9 @@ export function AdminRegisterScreen({ onLogout }: AdminRegisterScreenProps) {
                     </div>
                     <div style={{ fontSize: 11.5, color: 'rgba(242, 242, 247, 0.4)' }}>
                       {p.email}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: 'rgba(139, 188, 212, 0.8)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
+                      Player ID · {p.participantId || 'Assigning…'}
                     </div>
                   </div>
                 </div>

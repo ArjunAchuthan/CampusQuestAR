@@ -13,6 +13,7 @@ export const NAV_LABELS: Record<NavTab, string> = {
 
 export interface ParticipantUser {
   uid: string
+  participantId?: string
   email: string
   displayName: string
   role: 'participant' | 'admin'

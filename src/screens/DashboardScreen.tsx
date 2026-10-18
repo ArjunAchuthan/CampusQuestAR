@@ -12,7 +12,10 @@ export interface DashboardScreenProps {
 export function DashboardScreen({ onOpenCamera }: DashboardScreenProps) {
   const { user } = useAuth()
   const { avatar, displayName, loading: loadingProfile } = useUserProfile(user?.uid)
-  const { currentLocation, currentLocationIndex, loading: loadingProgress } = useQuestProgress(user?.uid)
+  const { locations, progress, currentLocationIndex, loading: loadingProgress } = useQuestProgress(user?.uid)
+  const completedIds = new Set(progress?.completedGameIds ?? [])
+  const completedCount = locations.reduce((count, location) => count + Number(completedIds.has(location.id)), 0)
+  const questComplete = locations.length === 7 && completedCount === 7
 
   const greeting = (() => {
     const hour = new Date().getHours()
@@ -89,13 +92,13 @@ export function DashboardScreen({ onOpenCamera }: DashboardScreenProps) {
         >
           <div>
             <div className="label-caps" style={{ marginBottom: 6 }}>
-              Current Target
+              Current Checkpoint
             </div>
             {loadingProgress ? (
               <Skel w="144px" h="22px" r="8px" />
             ) : (
               <div style={{ fontSize: 16, fontWeight: 700, color: '#F2F2F7' }}>
-                {currentLocation?.name || `Location ${currentLocationIndex + 1}`}
+                {questComplete ? 'Quest complete' : `Checkpoint ${currentLocationIndex + 1}`}
               </div>
             )}
           </div>
@@ -108,35 +111,35 @@ export function DashboardScreen({ onOpenCamera }: DashboardScreenProps) {
               paddingTop: 2,
             }}
           >
-            Location {currentLocationIndex + 1} of 7
+            {questComplete ? 'All 7 complete' : `Location ${currentLocationIndex + 1} of 7`}
           </div>
         </div>
 
         {/* 7-segment progress bar */}
         <div style={{ display: 'flex', gap: 5 }}>
-          {Array.from({ length: 7 }).map((_, i) => (
-            <div
-              key={i}
-              style={{
-                flex: 1,
-                height: 4,
-                borderRadius: 2,
-                background:
-                  i < currentLocationIndex
-                    ? '#34C759'
-                    : i === currentLocationIndex
-                    ? '#8BBCD4'
-                    : 'rgba(255,255,255,0.09)',
-                boxShadow:
-                  i === currentLocationIndex
+          {Array.from({ length: 7 }).map((_, i) => {
+            const isDone = locations[i]
+              ? completedIds.has(locations[i].id)
+              : i < currentLocationIndex
+            const isCurrent = !questComplete && !isDone && i === currentLocationIndex
+            return (
+              <div
+                key={i}
+                style={{
+                  flex: 1,
+                  height: 4,
+                  borderRadius: 2,
+                  background: isDone ? '#34C759' : isCurrent ? '#8BBCD4' : 'rgba(255,255,255,0.09)',
+                  boxShadow: isCurrent
                     ? '0 0 8px rgba(139,188,212,0.5)'
-                    : i < currentLocationIndex
+                    : isDone
                     ? '0 0 6px rgba(52,199,89,0.3)'
                     : 'none',
-                transition: 'all 0.3s ease',
-              }}
-            />
-          ))}
+                  transition: 'all 0.3s ease',
+                }}
+              />
+            )
+          })}
         </div>
 
         <div
@@ -149,8 +152,8 @@ export function DashboardScreen({ onOpenCamera }: DashboardScreenProps) {
             color: 'rgba(242,242,247,0.5)',
           }}
         >
-          <span>{currentLocationIndex} Completed</span>
-          <span>{7 - currentLocationIndex} Remaining</span>
+          <span>{completedCount} Completed</span>
+          <span>{7 - completedCount} Remaining</span>
         </div>
       </div>
 
@@ -199,7 +202,7 @@ export function DashboardScreen({ onOpenCamera }: DashboardScreenProps) {
             Quest Status
           </div>
           <div style={{ fontSize: 15, fontWeight: 700, color: '#34C759' }}>
-            In Progress
+            {questComplete ? 'Complete' : 'In Progress'}
           </div>
         </div>
 
@@ -208,7 +211,7 @@ export function DashboardScreen({ onOpenCamera }: DashboardScreenProps) {
             Target Checkpoint
           </div>
           <div style={{ fontSize: 15, fontWeight: 700, color: '#8BBCD4' }}>
-            #{currentLocationIndex + 1}
+            {questComplete ? '—' : `#${currentLocationIndex + 1}`}
           </div>
         </div>
       </div>

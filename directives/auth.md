@@ -18,6 +18,8 @@ Wire `LoginScreen` to real email/password auth. There is no self-registration fl
 - `App.tsx`'s `loggedIn` check becomes driven by `onAuthStateChanged`, not local component state, so a refresh doesn't log the user out
 - Wire `ProfileScreen`'s `onLogout` to the real `signOut()`
 - Show the existing inline error state (or add one) on failed login — don't invent a new visual style, match `glass-input`'s existing focus/error treatment
+- On a participant's first authenticated app session, show a short simulated bug-fix console; it recovers a clickable `archive_final_FINAL_v2.txt` folder/file. Only opening that recovered item reveals the Lost Legacy note. Store `prologueSeenAt` on the participant profile found by its `uid` field (the profile document ID is six digits) so this introduction is one-time per account; use local storage only as a fallback cache when Firestore is unavailable.
+- The recovered note uses a typewriter reveal and omits the closing narration about grabbing friends/starting the hunt. `Begin the hunt`, the close control, and double-tap all take the participant directly to checkpoint one's clue. The skip action reveals the remaining text without leaving the note.
 
 ## Edge cases
 - Wrong credentials → show a clear inline error, do not reveal whether the email exists (standard practice)

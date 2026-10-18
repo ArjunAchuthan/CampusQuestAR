@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
-import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore'
+import { onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore'
 import { updateProfile } from 'firebase/auth'
-import { db, auth } from '@/lib/firebase'
+import { auth } from '@/lib/firebase'
+import { getUserProfileRef } from '@/lib/participantId'
 import { AVATARS, DEFAULT_AVATAR, getAvatarById, type AvatarOption } from '@/lib/avatars'
 
 export interface UserProfileData {
   uid: string
+  participantId?: string
   displayName: string
   email: string
   role: 'participant' | 'admin'
@@ -60,10 +62,19 @@ export function useUserProfile(uid: string | null | undefined) {
       return
     }
 
-    const userDocRef = doc(db, 'users', targetUid)
-    const unsub = onSnapshot(
-      userDocRef,
-      (snap) => {
+    let cancelled = false
+    let unsub: (() => void) | null = null
+
+    getUserProfileRef(targetUid).then((userDocRef) => {
+      if (cancelled) return
+      if (!userDocRef) {
+        setLoading(false)
+        return
+      }
+
+      unsub = onSnapshot(
+        userDocRef,
+        (snap) => {
         const cachedAvatar = localStorage.getItem(`campus_quest_avatar_${targetUid}`)
         const currentUser = auth.currentUser
 
@@ -73,6 +84,9 @@ export function useUserProfile(uid: string | null | undefined) {
           const displayName = data.displayName || currentUser?.displayName || 'Explorer'
           const email = data.email || currentUser?.email || ''
           const role = data.role || 'participant'
+          const participantId = role === 'participant'
+            ? (/^\d{6}$/.test(userDocRef.id) ? userDocRef.id : data.participantId)
+            : undefined
 
           // Keep localStorage updated
           localStorage.setItem(`campus_quest_avatar_${targetUid}`, avatarId)
@@ -80,6 +94,7 @@ export function useUserProfile(uid: string | null | undefined) {
 
           setProfile({
             uid: targetUid,
+            participantId,
             displayName,
             email,
             role,
@@ -109,10 +124,17 @@ export function useUserProfile(uid: string | null | undefined) {
       (err) => {
         console.warn('Error listening to user profile:', err)
         setLoading(false)
-      }
-    )
+        }
+      )
+    }).catch((err) => {
+      console.warn('Could not locate the participant profile:', err)
+      if (!cancelled) setLoading(false)
+    })
 
-    return () => unsub()
+    return () => {
+      cancelled = true
+      unsub?.()
+    }
   }, [uid])
 
   const selectAvatar = useCallback(
@@ -137,7 +159,8 @@ export function useUserProfile(uid: string | null | undefined) {
 
       try {
         // 2. Persist to Firestore
-        const userDocRef = doc(db, 'users', targetUid)
+        const userDocRef = await getUserProfileRef(targetUid)
+        if (!userDocRef) return false
         await setDoc(
           userDocRef,
           {

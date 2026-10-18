@@ -13,7 +13,7 @@ import { CheckpointGame } from '@/components/games/CheckpointGame'
  * - In plain scanning mode when outside geofence radius without leaking distances.
  * - Opens the current checkpoint mini-game when withinRange is true.
  */
-export function CameraScreen() {
+export function CameraScreen({ onClueUnlocked }: { onClueUnlocked: () => void }) {
   const { user } = useAuth()
   const { videoRef, status: cameraStatus, errorMessage: cameraError, retry: retryCamera } = useCamera()
 
@@ -23,6 +23,7 @@ export function CameraScreen() {
     progress,
     isCurrentUnlocked,
     unlockCurrent,
+    loading: progressLoading,
   } = useQuestProgress(user?.uid)
 
   const {
@@ -309,7 +310,7 @@ export function CameraScreen() {
       </div>
 
       {/* ── 6. Checkpoint mini-game (only active at the current location) ── */}
-      {withinRange && currentLocation && (
+      {!progressLoading && progress && withinRange && currentLocation && (
         <div
           style={{
             position: 'absolute',
@@ -327,6 +328,7 @@ export function CameraScreen() {
               if (!user?.uid) throw new Error('Sign in to save quest progress.')
               const saved = await completeLocationGame(user.uid, currentLocationIndex, currentLocation.id)
               if (!saved) throw new Error('Could not save quest progress.')
+              onClueUnlocked()
             }}
           />
         </div>

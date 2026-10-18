@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { collection, onSnapshot } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { registerParticipant, fetchRegisteredParticipants, deleteParticipant } from '@/lib/admin'
+import { getUserProfileRef } from '@/lib/participantId'
 import type { ParticipantUser } from '@/types'
 import { Skel } from '@/components/common/Skeleton'
 
@@ -23,6 +24,7 @@ export function RegistrationDeskScreen() {
   // Success popup modal data
   const [successData, setSuccessData] = useState<{
     name: string
+    participantId?: string
     email: string
     password?: string
   } | null>(null)
@@ -50,20 +52,32 @@ export function RegistrationDeskScreen() {
 
     const unsubscribe = onSnapshot(
       usersCol,
-      (snap) => {
-        const list: ParticipantUser[] = []
-        snap.forEach((docSnap) => {
+      async (snap) => {
+        // Migrate every legacy user profile, including admin profiles, so this
+        // public registration desk can complete the one-time document ID change.
+        const migratedProfiles = await Promise.all(snap.docs.map(async (docSnap) => {
           const data = docSnap.data() as ParticipantUser
-          if (data.role === 'participant') {
-            list.push({
-              uid: docSnap.id,
+          const uid = data.uid || docSnap.id
+          const numericId = /^\d{6}$/.test(docSnap.id)
+          if (!numericId) {
+            try { await getUserProfileRef(uid) } catch (error) { console.warn('Could not migrate user profile:', error) }
+          }
+          return { docSnap, data, uid }
+        }))
+
+        const list = migratedProfiles
+          .filter(({ data }) => data.role === 'participant')
+          .map(({ docSnap, data, uid }): ParticipantUser => {
+            const participantId = /^\d{6}$/.test(docSnap.id) ? docSnap.id : undefined
+            return {
+              uid,
+              participantId,
               email: data.email || '',
               displayName: data.displayName || 'Unnamed Player',
               role: data.role,
               createdAt: data.createdAt,
-            })
-          }
-        })
+            }
+          })
 
         // Sort descending by registration date
         list.sort((a, b) => {
@@ -146,6 +160,7 @@ export function RegistrationDeskScreen() {
         // Trigger Success Popup Modal
         setSuccessData({
           name: trimmedName,
+          participantId: res.participantId,
           email: trimmedEmail,
           password: res.password || password.trim(),
         })
@@ -167,7 +182,7 @@ export function RegistrationDeskScreen() {
 
   const handleCopyCredentials = () => {
     if (!successData) return
-    const text = `Campus Quest AR\nPlayer: ${successData.name}\nEmail: ${successData.email}\nPassword: ${successData.password || ''}`
+    const text = `Campus Quest AR\nPlayer: ${successData.name}\nPlayer ID: ${successData.participantId || ''}\nEmail: ${successData.email}\nPassword: ${successData.password || ''}`
     navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 3000)
@@ -202,7 +217,7 @@ export function RegistrationDeskScreen() {
   const filteredParticipants = participants.filter((p) => {
     const q = searchQuery.toLowerCase().trim()
     if (!q) return true
-    return p.displayName.toLowerCase().includes(q) || p.email.toLowerCase().includes(q)
+    return p.displayName.toLowerCase().includes(q) || p.email.toLowerCase().includes(q) || p.participantId?.includes(q)
   })
 
   return (
@@ -571,6 +586,17 @@ export function RegistrationDeskScreen() {
                 <span style={{ fontSize: 14, fontWeight: 600, color: '#F2F2F7' }}>
                   {successData.name}
                 </span>
+              </div>
+
+              <div style={{ height: 1, background: 'rgba(255, 255, 255, 0.06)' }} />
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(242, 242, 247, 0.4)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Player ID
+                </span>
+                <code style={{ fontSize: 14, color: '#8BBCD4', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                  {successData.participantId || 'Assigning…'}
+                </code>
               </div>
 
               <div style={{ height: 1, background: 'rgba(255, 255, 255, 0.06)' }} />
@@ -1028,6 +1054,9 @@ export function RegistrationDeskScreen() {
                         {p.displayName}
                       </div>
                       <div style={{ fontSize: 12, color: 'rgba(242, 242, 247, 0.42)' }}>{p.email}</div>
+                      <div style={{ fontSize: 10.5, color: 'rgba(139, 188, 212, 0.8)', marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
+                        Player ID · {p.participantId || 'Assigning…'}
+                      </div>
                     </div>
                   </div>
 

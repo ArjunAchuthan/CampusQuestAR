@@ -3,47 +3,25 @@ import { useAuth } from '@/lib/useAuth'
 import { useUserProfile } from '@/lib/useUserProfile'
 import { useQuestProgress } from '@/lib/progress'
 import { Skel } from '@/components/common/Skeleton'
-import { IcoSignOut, IcoPen } from '@/components/icons'
+import { IcoPen } from '@/components/icons'
 import { AvatarModal } from '@/components/profile/AvatarModal'
+import { formatDuration, useLeaderboardData } from '@/lib/useLeaderboardData'
 
-export interface ProfileScreenProps {
-  onLogout: () => void
-}
-
-export function ProfileScreen({ onLogout }: ProfileScreenProps) {
+export function ProfileScreen() {
   const { user } = useAuth()
   const { profile, avatar, displayName, email, loading: loadingProfile, selectAvatar } = useUserProfile(user?.uid)
-  const { currentLocationIndex, loading: loadingProgress } = useQuestProgress(user?.uid)
+  const { locations, progress, currentLocationIndex, loading: loadingProgress } = useQuestProgress(user?.uid)
+  const { ranked, loading: loadingLeaderboard } = useLeaderboardData()
 
   const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false)
 
-  const completedCount = currentLocationIndex
+  const completedIds = new Set(progress?.completedGameIds ?? [])
+  const completedCount = locations.reduce((count, location) => count + Number(completedIds.has(location.id)), 0)
+  const ownRank = ranked.findIndex((entry) => entry.uid === user?.uid)
+  const ownRun = ownRank >= 0 ? ranked[ownRank] : null
 
   return (
     <div className="screen-body">
-      {/* ── Sign out button (top right per design reference) ── */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
-        <button
-          onClick={onLogout}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: 'rgba(242,242,247,0.36)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 13,
-            fontFamily: 'inherit',
-            padding: '4px 2px',
-            transition: 'color 0.2s',
-          }}
-        >
-          <IcoSignOut size={15} />
-          Sign Out
-        </button>
-      </div>
-
       {/* ── Avatar + Name ── */}
       <div
         style={{
@@ -138,6 +116,11 @@ export function ProfileScreen({ onLogout }: ProfileScreenProps) {
             <div style={{ fontSize: 13, color: 'rgba(242,242,247,0.45)' }}>
               {email || 'Player'}
             </div>
+            {profile?.participantId && (
+              <div style={{ marginTop: 8, fontSize: 11, color: 'rgba(139,188,212,.8)', letterSpacing: '.08em', fontVariantNumeric: 'tabular-nums' }}>
+                PLAYER ID · {profile.participantId}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -149,8 +132,9 @@ export function ProfileScreen({ onLogout }: ProfileScreenProps) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center' }}>
           {Array.from({ length: 7 }).map((_, i) => {
-            const isDone = i < completedCount
-            const isCurrent = i === completedCount
+            const location = locations[i]
+            const isDone = location ? completedIds.has(location.id) : i < currentLocationIndex
+            const isCurrent = !isDone && i === currentLocationIndex
 
             return (
               <Fragment key={i}>
@@ -210,12 +194,11 @@ export function ProfileScreen({ onLogout }: ProfileScreenProps) {
         </div>
       </div>
 
-      {/* ── Stats Row: Best Time, Attempts, Rank ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+      {/* ── Calculated run time and leaderboard rank ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
         {[
-          { label: 'Best Time', val: '—' },
-          { label: 'Attempts', val: completedCount > 0 ? `${completedCount}` : '—' },
-          { label: 'Rank', val: completedCount > 0 ? `#${Math.max(1, 8 - completedCount)}` : '—' },
+          { label: 'Time', val: ownRun ? formatDuration(ownRun.duration) : '—' },
+          { label: 'Rank', val: ownRun ? `#${ownRank + 1}` : '—' },
         ].map(({ label, val }) => (
           <div
             key={label}
@@ -228,7 +211,7 @@ export function ProfileScreen({ onLogout }: ProfileScreenProps) {
             >
               {label}
             </div>
-            {loadingProgress ? (
+            {loadingProgress || loadingLeaderboard ? (
               <Skel w="100%" h="22px" r="7px" />
             ) : (
               <div style={{ fontSize: 16, fontWeight: 700, color: '#F2F2F7', letterSpacing: '-0.01em' }}>

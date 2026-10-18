@@ -1,60 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { collection, onSnapshot } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import React from 'react'
 import { useAuth } from '@/lib/useAuth'
-import type { ParticipantUser } from '@/types'
-
-type Run = { uid: string; startedAt?: any; finishedAt?: any }
-
-function toMillis(value: any): number | null {
-  if (typeof value?.toMillis === 'function') return value.toMillis()
-  if (typeof value?.seconds === 'number') return value.seconds * 1000
-  return null
-}
-
-function formatDuration(ms: number) {
-  const seconds = Math.max(0, Math.floor(ms / 1000))
-  const hours = Math.floor(seconds / 3600)
-  const minutes = Math.floor((seconds % 3600) / 60)
-  const remainder = seconds % 60
-  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainder).padStart(2, '0')}` : `${minutes}:${String(remainder).padStart(2, '0')}`
-}
+import { useLeaderboardData, formatDuration } from '@/lib/useLeaderboardData'
 
 export function LeaderboardScreen() {
   const { user } = useAuth()
-  const [runs, setRuns] = useState<Run[]>([])
-  const [participants, setParticipants] = useState<Record<string, ParticipantUser>>({})
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    let gotRuns = false
-    let gotUsers = false
-    const syncLoading = () => { if (gotRuns && gotUsers) setLoading(false) }
-    const stopRuns = onSnapshot(collection(db, 'progress'), (snapshot) => {
-      setRuns(snapshot.docs.map((item) => ({ uid: item.id, ...item.data() } as Run)))
-      gotRuns = true
-      syncLoading()
-    }, (err) => { console.error('Leaderboard progress listener failed:', err); setError('Leaderboard data could not be loaded.'); setLoading(false) })
-    const stopUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-      const next: Record<string, ParticipantUser> = {}
-      snapshot.docs.forEach((item) => {
-        const data = item.data() as ParticipantUser
-        if (data.role === 'participant') next[item.id] = { ...data, uid: item.id }
-      })
-      setParticipants(next)
-      gotUsers = true
-      syncLoading()
-    }, (err) => { console.error('Leaderboard participant listener failed:', err); setError('Player names could not be loaded.'); setLoading(false) })
-    return () => { stopRuns(); stopUsers() }
-  }, [])
-
-  const ranked = useMemo(() => runs.flatMap((run) => {
-    const started = toMillis(run.startedAt)
-    const finished = toMillis(run.finishedAt)
-    if (!started || !finished || finished < started) return []
-    return [{ uid: run.uid, name: participants[run.uid]?.displayName || 'Player', avatarUrl: participants[run.uid]?.avatarUrl, duration: finished - started, finished }]
-  }).sort((a, b) => a.duration - b.duration || a.finished - b.finished || a.name.localeCompare(b.name)), [runs, participants])
+  const { ranked, loading, error } = useLeaderboardData()
 
   const ownRank = ranked.findIndex((entry) => entry.uid === user?.uid)
   const colGrid = '36px minmax(0,1fr) auto'
