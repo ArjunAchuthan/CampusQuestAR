@@ -7,6 +7,7 @@ export interface UseCameraResult {
   status: CameraStatus
   errorMessage: string | null
   retry: () => void
+  pause: () => void
 }
 
 /**
@@ -112,5 +113,6 @@ export function useCamera(): UseCameraResult {
     status,
     errorMessage,
     retry: startCamera,
+    pause: stopStream,
   }
 }

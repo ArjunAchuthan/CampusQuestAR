@@ -14,7 +14,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore'
 import { db, getSecondaryAuth } from '@/lib/firebase'
-import { createNumericParticipantDocuments, getUserProfileRef } from '@/lib/participantId'
+import { createNumericParticipantDocuments, getProgressDocumentRef, getUserProfileRef } from '@/lib/participantId'
 import type { ParticipantUser } from '@/types'
 
 /**
@@ -87,7 +87,7 @@ export function generateTemporaryPassword(): string {
 
 /**
  * Registers a new participant account via secondary auth instance,
- * atomically creating the auth user, users/{sixDigitId} document, and progress/{uid} document.
+ * atomically creating the auth user and matching numeric users/progress documents.
  * Crucially, does NOT mutate or sign out the admin's active primary browser session.
  */
 export async function registerParticipant({
@@ -117,7 +117,7 @@ export async function registerParticipant({
     const newUid = cred.user.uid
     await updateProfile(cred.user, { displayName: trimmedName, photoURL: '/avatars/avatar-1.png' })
 
-    // 2. Create the numeric profile document and UID-keyed progress record atomically.
+    // 2. Create the numeric profile and progress documents atomically.
     const participantId = await createNumericParticipantDocuments(newUid, {
         uid: newUid,
         email: trimmedEmail,
@@ -192,6 +192,9 @@ export async function fetchRegisteredParticipants(): Promise<ParticipantUser[]> 
         if (!participantId) {
           try { participantId = (await getUserProfileRef(uid))?.id } catch (err) { console.warn('Could not migrate participant profile:', err) }
         }
+        if (participantId) {
+          try { await getProgressDocumentRef(uid) } catch (err) { console.warn('Could not migrate participant progress:', err) }
+        }
         return {
           uid,
           participantId,
@@ -225,8 +228,9 @@ export async function deleteParticipant(uid: string): Promise<{ success: boolean
     if (userDocRef) await deleteDoc(userDocRef)
 
     // 2. Delete Firestore progress document
-    const progressDocRef = doc(db, 'progress', uid)
-    await deleteDoc(progressDocRef).catch(() => {})
+    const numericProgressRef = userDocRef ? doc(db, 'progress', userDocRef.id) : null
+    if (numericProgressRef) await deleteDoc(numericProgressRef).catch(() => {})
+    await deleteDoc(doc(db, 'progress', uid)).catch(() => {})
 
     // 3. Delete Firestore leaderboard document if present
     const leaderboardDocRef = doc(db, 'leaderboard', uid)

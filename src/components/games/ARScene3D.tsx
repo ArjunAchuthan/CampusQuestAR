@@ -21,9 +21,13 @@ export type SceneState = {
 type Props = {
   gameType: CheckpointGameType
   locationIndex: number
+  screenSpace?: boolean
   anchored: boolean
   state: SceneState
   onAction: (action: string) => void
+  onARState: (state: 'checking' | 'unsupported' | 'ready' | 'searching' | 'placed' | 'error', message?: string) => void
+  onARPlaced: (placed: boolean) => void
+  startARRef: React.MutableRefObject<(() => Promise<void>) | null>
 }
 
 type SceneBundle = { scene: THREE.Scene; camera: THREE.PerspectiveCamera; interactives: THREE.Group }
@@ -127,8 +131,24 @@ function makeScene(gameType: CheckpointGameType, locationIndex: number, anchored
   scene.add(rim)
   const gameGroup = new THREE.Group()
   gameGroup.position.y = .42
-  scene.add(gameGroup)
+  const worldRoot = new THREE.Group()
+  worldRoot.name = 'world-anchored-game'
+  scene.add(worldRoot)
+  worldRoot.add(gameGroup)
+  const reticle = new THREE.Group()
+  reticle.name = 'ar-surface-reticle'
+  reticle.userData.arReticle = true
+  reticle.visible = false
+  const reticleRing = new THREE.Mesh(new THREE.RingGeometry(.075, .095, 40), new THREE.MeshBasicMaterial({ color: 0x70f5ff, transparent: true, opacity: .9, side: THREE.DoubleSide, depthWrite: false }))
+  reticleRing.rotation.x = -Math.PI / 2
+  reticle.add(reticleRing)
+  const reticleDot = new THREE.Mesh(new THREE.CircleGeometry(.025, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }))
+  reticleDot.rotation.x = -Math.PI / 2
+  reticleDot.position.y = .002
+  reticle.add(reticleDot)
+  scene.add(reticle)
   const beacon = createBeacon(scene, new THREE.Color(gameColors[locationIndex]).getHex(), anchored, gameType === 'pipe' ? 1.8 : 1.4)
+  worldRoot.add(beacon)
   // The beacon is a discovery target; once locked, keep the puzzle unobstructed.
   beacon.visible = !anchored
 
@@ -610,13 +630,18 @@ function disposeScene(scene: THREE.Scene) {
   })
 }
 
-export function ARScene3D({ gameType, locationIndex, anchored, state, onAction }: Props) {
+export function ARScene3D({ gameType, locationIndex, screenSpace = false, anchored, state, onAction, onARState, onARPlaced, startARRef }: Props) {
   const hostRef = useRef<HTMLDivElement>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const bundleRef = useRef<SceneBundle | null>(null)
   const actionRef = useRef(onAction)
   const stateRef = useRef(state)
   const dragActionRef = useRef<string | null>(null)
+  const arStateRef = useRef(onARState)
+  const arPlacedRef = useRef(onARPlaced)
+  const xrPlacementMatrixRef = useRef<Float32Array | null>(null)
+  arStateRef.current = onARState
+  arPlacedRef.current = onARPlaced
   actionRef.current = onAction
   stateRef.current = state
 
@@ -639,6 +664,11 @@ export function ARScene3D({ gameType, locationIndex, anchored, state, onAction }
     renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.toneMappingExposure = 1.25
     renderer.setClearColor(0x000000, 0)
+    renderer.xr.enabled = !screenSpace
+    if (!screenSpace) {
+      // Three.js defaults to `local-floor`; use `local` because some AR providers only grant that space.
+      renderer.xr.setReferenceSpaceType('local')
+    }
     renderer.domElement.setAttribute('aria-label', 'Interactive 3D checkpoint game')
     renderer.domElement.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;touch-action:none;pointer-events:auto;'
     host.appendChild(renderer.domElement)
@@ -652,7 +682,7 @@ export function ARScene3D({ gameType, locationIndex, anchored, state, onAction }
       if (!rect.width || !rect.height) return null
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-      raycaster.setFromCamera(pointer, bundle.camera)
+      raycaster.setFromCamera(pointer, renderer.xr.isPresenting ? renderer.xr.getCamera() : bundle.camera)
       const hit = raycaster.intersectObjects(bundle.scene.children, true).find((entry) => {
         const action = entry.object.userData.action as string | undefined
         if (!action || action === excludeAction) return false
@@ -679,8 +709,17 @@ export function ARScene3D({ gameType, locationIndex, anchored, state, onAction }
       if (!rect.width || !rect.height) return
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-      raycaster.setFromCamera(pointer, bundle.camera)
-      const worldPoint = raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -.62), new THREE.Vector3())
+      raycaster.setFromCamera(pointer, renderer.xr.isPresenting ? renderer.xr.getCamera() : bundle.camera)
+      const draggedMeshes: THREE.Mesh[] = []
+      bundle.interactives.traverse((object) => {
+        if (object instanceof THREE.Mesh && object.userData.action === action && object.userData.dragHome) draggedMeshes.push(object)
+      })
+      const objectPosition = new THREE.Vector3()
+      draggedMeshes[0]?.getWorldPosition(objectPosition)
+      const cameraNormal = new THREE.Vector3()
+      ;(renderer.xr.isPresenting ? renderer.xr.getCamera() : bundle.camera).getWorldDirection(cameraNormal)
+      const dragPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(cameraNormal, objectPosition)
+      const worldPoint = raycaster.ray.intersectPlane(dragPlane, new THREE.Vector3())
       if (!worldPoint) return
       bundle.interactives.traverse((object) => {
         if (object instanceof THREE.Mesh && object.userData.action === action && object.userData.dragHome) {
@@ -745,7 +784,6 @@ export function ARScene3D({ gameType, locationIndex, anchored, state, onAction }
     const clock = new THREE.Clock()
     let frame = 0
     const render = () => {
-      frame = requestAnimationFrame(render)
       const bundle = bundleRef.current
       if (!bundle) return
       const time = clock.getElapsedTime()
@@ -755,10 +793,178 @@ export function ARScene3D({ gameType, locationIndex, anchored, state, onAction }
       })
       renderer.render(bundle.scene, bundle.camera)
     }
-    render()
+    renderer.setAnimationLoop(render)
+
+    let hitTestSource: any = null
+    let xrReferenceSpace: any = null
+    let xrSession: any = null
+    let latestHitMatrix: Float32Array | null = null
+    let latestHitResult: any = null
+    let xrAnchor: any = null
+    let placedInAR = false
+    let stableHitFrames = 0
+    let previousHitPosition: THREE.Vector3 | null = null
+
+    const placeAtHit = (matrixValues: ArrayLike<number>, hitResult: any) => {
+      if (placedInAR || !bundleRef.current) return
+      applyPlacementPose(matrixValues)
+      placedInAR = true
+      if (hitResult?.createAnchor) {
+        void hitResult.createAnchor().then((anchor: any) => {
+          if (xrSession) xrAnchor = anchor
+          else anchor.delete?.()
+        }).catch(() => { /* local reference-space pose remains the fallback */ })
+      }
+      arPlacedRef.current(true)
+      arStateRef.current('placed')
+    }
+
+    const applyPlacementPose = (matrixValues: ArrayLike<number>) => {
+      const root = bundleRef.current?.scene.getObjectByName('world-anchored-game')
+      if (!root) return
+      const values = Array.from(matrixValues, Number)
+      const hitMatrix = new THREE.Matrix4().fromArray(values)
+      hitMatrix.multiply(new THREE.Matrix4().makeRotationX(-Math.PI / 2))
+      hitMatrix.setPosition(
+        hitMatrix.elements[12] + values[4] * .12,
+        hitMatrix.elements[13] + values[5] * .12,
+        hitMatrix.elements[14] + values[6] * .12,
+      )
+      xrPlacementMatrixRef.current = new Float32Array(hitMatrix.elements)
+      hitMatrix.decompose(root.position, root.quaternion, root.scale)
+      root.scale.multiplyScalar(.38)
+      root.updateMatrix()
+      root.matrixAutoUpdate = false
+      root.visible = true
+    }
+
+    const startAR = async () => {
+      const xr = (navigator as Navigator & { xr?: any }).xr
+      if (!xr) {
+        arStateRef.current('unsupported', 'World-locked AR is unavailable in this browser or device.')
+        return
+      }
+      arStateRef.current('searching', 'Move your phone slowly to scan for a floor or table surface.')
+      try {
+        // requestSession must be called directly from the player's tap to preserve browser user activation.
+        const sessionPromise = xr.requestSession('immersive-ar', {
+          requiredFeatures: ['hit-test'],
+          optionalFeatures: ['local-floor', 'anchors', 'dom-overlay'],
+          domOverlay: { root: document.body },
+        })
+        const session = await sessionPromise
+        xrSession = session
+        await renderer.xr.setSession(session)
+        if (session.environmentBlendMode && session.environmentBlendMode !== 'alpha-blend') {
+          await session.end()
+          xrSession = null
+          arStateRef.current('unsupported', 'This AR provider cannot show camera passthrough. The live camera preview is still available.')
+          return
+        }
+        xrReferenceSpace = renderer.xr.getReferenceSpace() ?? await session.requestReferenceSpace('local')
+        const viewerSpace = await session.requestReferenceSpace('viewer')
+        hitTestSource = await session.requestHitTestSource({ space: viewerSpace })
+        // Release the preview camera only after the browser has successfully entered passthrough AR.
+        const bundle = bundleRef.current
+        if (bundle) {
+          bundle.scene.background = null
+          const root = bundle.scene.getObjectByName('world-anchored-game')
+          if (root) root.visible = false
+          bundle.scene.traverse((object) => {
+            if (object.userData.arReticle) object.visible = true
+          })
+        }
+        session.addEventListener('select', (event: any) => {
+          if (placedInAR || !latestHitMatrix || !bundleRef.current) return
+          placeAtHit(latestHitMatrix, latestHitResult)
+        })
+        session.addEventListener('end', () => {
+          hitTestSource?.cancel?.()
+          hitTestSource = null
+          xrAnchor?.delete?.()
+          xrAnchor = null
+          latestHitResult = null
+          xrSession = null
+          xrPlacementMatrixRef.current = null
+          if (placedInAR) {
+            placedInAR = false
+            arPlacedRef.current(false)
+          }
+          arStateRef.current('ready')
+        })
+      } catch (error) {
+        console.warn('Could not start world-tracked AR:', error)
+        const failedSession = xrSession ?? renderer.xr.getSession()
+        xrSession = null
+        try {
+          if (failedSession && failedSession.state !== 'ended') await failedSession.end()
+        } catch { /* continue with the screen-space camera fallback */ }
+        renderer.setAnimationLoop(render)
+        arStateRef.current('error', 'World AR could not start automatically. Keep the live camera open and tap once to retry surface scanning.')
+      }
+    }
+    startARRef.current = startAR
+    void (async () => {
+      if (screenSpace) {
+        arStateRef.current('placed', 'Camera overlay mode active.')
+        return
+      }
+      const xr = (navigator as Navigator & { xr?: any }).xr
+      try {
+        if (xr && await xr.isSessionSupported('immersive-ar')) arStateRef.current('ready')
+        else arStateRef.current('unsupported', 'This browser does not support world-locked AR; screen-space preview is active.')
+      } catch {
+        arStateRef.current('unsupported', 'This browser does not support world-locked AR; screen-space preview is active.')
+      }
+    })()
+
+    const onXRFrame = (_time: number, frameData: any) => {
+      const session = frameData?.session
+      if (!session || !hitTestSource) return
+      if (placedInAR && xrAnchor) {
+        const anchorPose = frameData.getPose(xrAnchor.anchorSpace, xrReferenceSpace)
+        if (anchorPose) applyPlacementPose(anchorPose.transform.matrix)
+        return
+      }
+      if (placedInAR) return
+      const results = frameData.getHitTestResults(hitTestSource)
+      if (results.length > 0) {
+        latestHitResult = results[0]
+        const pose = results[0].getPose(xrReferenceSpace)
+        if (pose) {
+          latestHitMatrix = new Float32Array(pose.transform.matrix)
+          const hitPosition = new THREE.Vector3().setFromMatrixPosition(new THREE.Matrix4().fromArray(latestHitMatrix))
+          if (previousHitPosition && previousHitPosition.distanceTo(hitPosition) < .035) stableHitFrames += 1
+          else stableHitFrames = 0
+          previousHitPosition = hitPosition
+          const reticle = bundleRef.current?.scene.getObjectByName('ar-surface-reticle')
+          if (reticle) {
+            reticle.matrix.fromArray(latestHitMatrix)
+            reticle.matrixAutoUpdate = false
+            reticle.visible = true
+          }
+          // Once a surface pose stays steady, lock the miniature game to that real-world point automatically.
+          if (stableHitFrames >= 40) placeAtHit(latestHitMatrix, latestHitResult)
+        }
+      } else {
+        latestHitMatrix = null
+        latestHitResult = null
+        previousHitPosition = null
+        stableHitFrames = 0
+        const reticle = bundleRef.current?.scene.getObjectByName('ar-surface-reticle')
+        if (reticle) reticle.visible = false
+      }
+    }
+    renderer.xr.addEventListener('sessionstart', () => renderer.setAnimationLoop((time, xrFrame) => {
+      onXRFrame(time, xrFrame)
+      render()
+    }))
+    renderer.xr.addEventListener('sessionend', () => renderer.setAnimationLoop(render))
 
     return () => {
-      cancelAnimationFrame(frame)
+      renderer.setAnimationLoop(null)
+      if (xrSession) void xrSession.end()
+      startARRef.current = null
       resize.disconnect()
       renderer.domElement.removeEventListener('pointerdown', onPointerDown)
       renderer.domElement.removeEventListener('pointermove', onPointerMove)
@@ -771,10 +977,21 @@ export function ARScene3D({ gameType, locationIndex, anchored, state, onAction }
       renderer.domElement.remove()
       rendererRef.current = null
     }
-  }, [])
+  }, [screenSpace])
 
   useEffect(() => {
     const next = makeScene(gameType, locationIndex, anchored, stateRef.current)
+    const savedPose = xrPlacementMatrixRef.current
+    if (savedPose) {
+      const root = next.scene.getObjectByName('world-anchored-game')
+      if (root) {
+        new THREE.Matrix4().fromArray(savedPose).decompose(root.position, root.quaternion, root.scale)
+        root.scale.multiplyScalar(.38)
+        root.updateMatrix()
+        root.matrixAutoUpdate = false
+        root.visible = true
+      }
+    }
     const previous = bundleRef.current
     bundleRef.current = next
     const host = hostRef.current

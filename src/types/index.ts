@@ -39,6 +39,7 @@ export interface QuestLocation {
 
 export interface ParticipantProgress {
   uid: string
+  participantId?: string
   currentLocationIndex: number
   completedGameIds: string[]
   startedAt?: any

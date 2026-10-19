@@ -29,6 +29,7 @@ export function CameraScreen({ onClueUnlocked }: { onClueUnlocked: () => void })
   const {
     withinRange,
   } = useGeofence(currentLocation?.coords, currentLocation?.unlockRadius || 20)
+  const showActiveCheckpoint = withinRange
 
   // Auto-stamp unlockedAt in Firestore upon first reaching the checkpoint geofence
   const hasUnlockedRef = useRef<string | null>(null)
@@ -62,6 +63,8 @@ export function CameraScreen({ onClueUnlocked }: { onClueUnlocked: () => void })
           width: '100%',
           height: '100%',
           objectFit: 'cover',
+          // Keep the inline camera stream alive beneath the transparent WebXR canvas.
+          // This avoids a black view on browsers whose AR compositor temporarily drops passthrough.
           display: cameraStatus === 'active' ? 'block' : 'none',
           zIndex: 11,
         }}
@@ -201,32 +204,32 @@ export function CameraScreen({ onClueUnlocked }: { onClueUnlocked: () => void })
           <div
             className="reticle-corner tl"
             style={{
-              borderColor: withinRange ? '#34C759' : undefined,
-              opacity: withinRange ? 1 : 0.85,
+              borderColor: showActiveCheckpoint ? '#34C759' : undefined,
+              opacity: showActiveCheckpoint ? 1 : 0.85,
               transition: 'border-color 0.3s ease',
             }}
           />
           <div
             className="reticle-corner tr"
             style={{
-              borderColor: withinRange ? '#34C759' : undefined,
-              opacity: withinRange ? 1 : 0.85,
+              borderColor: showActiveCheckpoint ? '#34C759' : undefined,
+              opacity: showActiveCheckpoint ? 1 : 0.85,
               transition: 'border-color 0.3s ease',
             }}
           />
           <div
             className="reticle-corner bl"
             style={{
-              borderColor: withinRange ? '#34C759' : undefined,
-              opacity: withinRange ? 1 : 0.85,
+              borderColor: showActiveCheckpoint ? '#34C759' : undefined,
+              opacity: showActiveCheckpoint ? 1 : 0.85,
               transition: 'border-color 0.3s ease',
             }}
           />
           <div
             className="reticle-corner br"
             style={{
-              borderColor: withinRange ? '#34C759' : undefined,
-              opacity: withinRange ? 1 : 0.85,
+              borderColor: showActiveCheckpoint ? '#34C759' : undefined,
+              opacity: showActiveCheckpoint ? 1 : 0.85,
               transition: 'border-color 0.3s ease',
             }}
           />
@@ -241,8 +244,8 @@ export function CameraScreen({ onClueUnlocked }: { onClueUnlocked: () => void })
               width: 8,
               height: 8,
               borderRadius: '50%',
-              background: withinRange ? '#34C759' : '#8BBCD4',
-              boxShadow: `0 0 12px ${withinRange ? '#34C759' : '#8BBCD4'}`,
+              background: showActiveCheckpoint ? '#34C759' : '#8BBCD4',
+              boxShadow: `0 0 12px ${showActiveCheckpoint ? '#34C759' : '#8BBCD4'}`,
               animation: 'pulse 1.8s ease-in-out infinite',
             }}
           />
@@ -254,10 +257,10 @@ export function CameraScreen({ onClueUnlocked }: { onClueUnlocked: () => void })
               left: 10,
               right: 10,
               height: 2,
-              background: withinRange
+              background: showActiveCheckpoint
                 ? 'linear-gradient(90deg, transparent, rgba(52,199,89,0.9), transparent)'
                 : 'linear-gradient(90deg, transparent, rgba(139,188,212,0.8), transparent)',
-              boxShadow: `0 0 10px ${withinRange ? 'rgba(52,199,89,0.6)' : 'rgba(139,188,212,0.5)'}`,
+              boxShadow: `0 0 10px ${showActiveCheckpoint ? 'rgba(52,199,89,0.6)' : 'rgba(139,188,212,0.5)'}`,
               animation: 'scanSweep 2.8s ease-in-out infinite',
             }}
           />
@@ -271,10 +274,10 @@ export function CameraScreen({ onClueUnlocked }: { onClueUnlocked: () => void })
           top: 'calc(var(--safe-top) + var(--banner-h) + 14px)',
           left: '50%',
           transform: 'translateX(-50%)',
-          background: withinRange ? 'rgba(20, 36, 26, 0.85)' : 'rgba(14, 14, 16, 0.82)',
+          background: showActiveCheckpoint ? 'rgba(20, 36, 26, 0.85)' : 'rgba(14, 14, 16, 0.82)',
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
-          border: `1px solid ${withinRange ? 'rgba(52, 199, 89, 0.35)' : 'rgba(255, 255, 255, 0.1)'}`,
+          border: `1px solid ${showActiveCheckpoint ? 'rgba(52, 199, 89, 0.35)' : 'rgba(255, 255, 255, 0.1)'}`,
           borderRadius: 100,
           padding: '8px 18px',
           display: 'flex',
@@ -291,8 +294,8 @@ export function CameraScreen({ onClueUnlocked }: { onClueUnlocked: () => void })
             width: 7,
             height: 7,
             borderRadius: '50%',
-            background: withinRange ? '#34C759' : '#8BBCD4',
-            boxShadow: `0 0 8px ${withinRange ? '#34C759' : '#8BBCD4'}`,
+            background: showActiveCheckpoint ? '#34C759' : '#8BBCD4',
+            boxShadow: `0 0 8px ${showActiveCheckpoint ? '#34C759' : '#8BBCD4'}`,
             flexShrink: 0,
             animation: 'pulse 1.4s ease-in-out infinite',
           }}
@@ -301,16 +304,16 @@ export function CameraScreen({ onClueUnlocked }: { onClueUnlocked: () => void })
           style={{
             fontSize: 12.5,
             fontWeight: 500,
-            color: withinRange ? '#34C759' : 'rgba(242, 242, 247, 0.85)',
+            color: showActiveCheckpoint ? '#34C759' : 'rgba(242, 242, 247, 0.85)',
             letterSpacing: '-0.01em',
           }}
         >
-          {withinRange ? '✨ Checkpoint reached · signal puzzle active' : 'Reach the marked checkpoint to activate its signal'}
+          {showActiveCheckpoint ? '✨ Checkpoint reached · signal puzzle active' : 'Reach the marked checkpoint to activate its signal'}
         </span>
       </div>
 
       {/* ── 6. Checkpoint mini-game (only active at the current location) ── */}
-      {!progressLoading && progress && withinRange && currentLocation && (
+      {!progressLoading && progress && showActiveCheckpoint && currentLocation && (
         <div
           style={{
             position: 'absolute',
@@ -323,6 +326,7 @@ export function CameraScreen({ onClueUnlocked }: { onClueUnlocked: () => void })
           <CheckpointGame
             key={currentLocation.id}
             locationIndex={currentLocationIndex}
+            screenSpace
             alreadyDone={progress?.completedGameIds?.includes(currentLocation.id)}
             onComplete={async () => {
               if (!user?.uid) throw new Error('Sign in to save quest progress.')

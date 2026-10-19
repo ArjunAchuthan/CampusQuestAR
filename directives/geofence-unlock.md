@@ -5,7 +5,7 @@ Determine when a signed-in user has physically reached the current target locati
 
 ## Inputs
 - `locations` Firestore collection — one doc per location: `{ id, coords: { lat, lng }, unlockRadius, order }`
-- `progress` doc per user — tracks `currentLocationIndex`, `unlockedAt` timestamps per location, `completedGameIds`
+- `progress/{sixDigitId}` doc per user — tracks `currentLocationIndex`, `unlockedAt` timestamps per location, `completedGameIds`; retain the Firebase Auth UID as a `uid` field for joins
 - `navigator.geolocation.watchPosition()` for the user's live coordinates
 
 ## Tools
@@ -29,6 +29,6 @@ Determine when a signed-in user has physically reached the current target locati
 - **Battery/permission prompts**: `watchPosition` should be started only while on the Map or Camera tab, not for the whole session, to avoid draining phones over a multi-hour event
 
 ## Current testing notes
-- For local development only, `?testCoords=latitude,longitude` overrides all seven Firestore target coordinates without writing to the database. Example: `/?testCoords=10.758539,76.694513`. Keep `import.meta.env.DEV` gating so production participants cannot move checkpoint geofences with a URL parameter.
+- For local development, `?testCoords=latitude,longitude` overrides all seven Firestore target coordinates without writing to the database. The temporary `phone-ar-test` hosting channel defaults to `10.758460,76.694664` for phone geolocation testing; keep that host allowlist exact so production participants cannot move checkpoint geofences with a URL parameter. The current production Firestore checkpoint documents also use this shared testing coordinate at the user's request.
 - Camera selection is progress-first: `currentLocationIndex` selects the sole active checkpoint; never select a game by nearest location or by another nearby geofence. Keep the game unmounted until the signed-in player's progress snapshot is loaded, then require the active checkpoint's geofence to be reached. With all seven test coordinates co-located, a successful game should advance to the next game at the same physical point.
 - If progress points outside the available location index range, return no current location instead of falling back to checkpoint one.

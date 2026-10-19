@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  doc,
   collection,
   onSnapshot,
   getDocs,
@@ -10,16 +9,32 @@ import {
   runTransaction,
 } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
+import { getProgressDocumentRef } from '@/lib/participantId'
 import type { LatLng, QuestLocation, ParticipantProgress } from '@/types'
+
+const progressCache = new Map<string, ParticipantProgress>()
+let locationsCache: QuestLocation[] = []
+
+/** True only on the temporary phone testing site; never enables production checkpoints. */
+export function isPhoneARPreview(): boolean {
+  return typeof window !== 'undefined'
+    && window.location.hostname === 'campusquestar-app--phone-ar-test-u94nmep3.web.app'
+}
 
 /**
  * Development-only GPS fixture. Add ?testCoords=lat,lng to the app URL to
  * place all seven geofences at one test point without changing Firestore.
  */
 function applyTestCoordinates(locations: QuestLocation[]): QuestLocation[] {
-  if (!import.meta.env.DEV || typeof window === 'undefined') return locations
+  if (typeof window === 'undefined') return locations
+
+  // The temporary phone preview is allowed to simulate all seven checkpoints at
+  // the user's test location. This override never applies to the production site.
+  const phonePreview = isPhoneARPreview()
+  if (!import.meta.env.DEV && !phonePreview) return locations
 
   const raw = new URLSearchParams(window.location.search).get('testCoords')
+    ?? (phonePreview ? '10.758460,76.694664' : null)
   if (!raw) return locations
 
   const [latRaw, lngRaw] = raw.split(',')
@@ -101,7 +116,9 @@ export async function fetchQuestLocations(): Promise<QuestLocation[]> {
       })
     })
 
-    return applyTestCoordinates(list.sort((a, b) => a.order - b.order))
+    const result = applyTestCoordinates(list.sort((a, b) => a.order - b.order))
+    locationsCache = result
+    return result
   } catch (err) {
     console.error('Error fetching locations:', err)
     return []
@@ -119,7 +136,7 @@ export async function unlockTargetLocation(
   if (!uid) return false
 
   try {
-    const progressRef = doc(db, 'progress', uid)
+    const progressRef = await getProgressDocumentRef(uid)
     const now = serverTimestamp()
 
     await runTransaction(db, async (transaction) => {
@@ -152,7 +169,7 @@ export async function completeLocationGame(
   if (!uid) return false
 
   try {
-    const progressRef = doc(db, 'progress', uid)
+    const progressRef = await getProgressDocumentRef(uid)
     await runTransaction(db, async (transaction) => {
       const snapshot = await transaction.get(progressRef)
       const data = snapshot.data()
@@ -169,6 +186,16 @@ export async function completeLocationGame(
         ...(isFinalLocation ? { finishedAt: serverTimestamp() } : {}),
         updatedAt: serverTimestamp(),
       })
+      progressCache.set(uid, {
+        uid,
+        participantId: progressRef.id,
+        currentLocationIndex: isFinalLocation ? 6 : locationIndex + 1,
+        completedGameIds: [...new Set([...completed, gameId])],
+        startedAt: data?.startedAt,
+        updatedAt: new Date(),
+        unlockedAt: data?.unlockedAt,
+        unlockedLocations: data?.unlockedLocations || {},
+      })
     })
 
     return true
@@ -182,9 +209,9 @@ export async function completeLocationGame(
  * React hook to listen in realtime to user's quest progress and quest locations.
  */
 export function useQuestProgress(uid: string | null | undefined) {
-  const [locations, setLocations] = useState<QuestLocation[]>([])
-  const [progress, setProgress] = useState<ParticipantProgress | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [locations, setLocations] = useState<QuestLocation[]>(locationsCache)
+  const [progress, setProgress] = useState<ParticipantProgress | null>(() => uid ? progressCache.get(uid) ?? null : null)
+  const [loading, setLoading] = useState(() => !(uid && progressCache.has(uid) && locationsCache.length > 0))
 
   // 1. Subscribe to locations collection
   useEffect(() => {
@@ -211,7 +238,9 @@ export function useQuestProgress(uid: string | null | undefined) {
           })
         })
         list.sort((a, b) => a.order - b.order)
-        setLocations(applyTestCoordinates(list))
+        const nextLocations = applyTestCoordinates(list)
+        locationsCache = nextLocations
+        setLocations(nextLocations)
       },
       (err) => {
         console.warn('Locations snapshot error, loading fallback:', err)
@@ -230,46 +259,60 @@ export function useQuestProgress(uid: string | null | undefined) {
       return
     }
 
-    const progressRef = doc(db, 'progress', uid)
-    const unsub = onSnapshot(
-      progressRef,
-      (snap) => {
-        if (snap.exists()) {
-          const data = snap.data()
-          setProgress({
-            uid,
-            currentLocationIndex: typeof data.currentLocationIndex === 'number' ? data.currentLocationIndex : 0,
-            completedGameIds: Array.isArray(data.completedGameIds) ? data.completedGameIds : [],
-            startedAt: data.startedAt,
-            updatedAt: data.updatedAt,
-            unlockedAt: data.unlockedAt,
-            unlockedLocations: data.unlockedLocations || {},
-          })
-        } else {
-          // Initialize progress doc if not created yet
-          setDoc(progressRef, {
-            uid,
-            currentLocationIndex: 0,
-            completedGameIds: [],
-            startedAt: null,
-            updatedAt: serverTimestamp(),
-          }).catch(console.error)
+    let cancelled = false
+    let unsubscribe: (() => void) | undefined
+    const cachedProgress = progressCache.get(uid)
+    setProgress(cachedProgress ?? null)
+    setLoading(!(cachedProgress && locationsCache.length > 0))
+    void getProgressDocumentRef(uid).then((progressRef) => {
+      if (cancelled) return
+      unsubscribe = onSnapshot(
+        progressRef,
+        (snap) => {
+          if (snap.exists()) {
+            const data = snap.data()
+            const nextProgress: ParticipantProgress = {
+              uid,
+              participantId: progressRef.id,
+              currentLocationIndex: typeof data.currentLocationIndex === 'number' ? data.currentLocationIndex : 0,
+              completedGameIds: Array.isArray(data.completedGameIds) ? data.completedGameIds : [],
+              startedAt: data.startedAt,
+              updatedAt: data.updatedAt,
+              unlockedAt: data.unlockedAt,
+              unlockedLocations: data.unlockedLocations || {},
+            }
+            progressCache.set(uid, nextProgress)
+            setProgress(nextProgress)
+          } else {
+            void setDoc(progressRef, {
+              uid,
+              participantId: progressRef.id,
+              currentLocationIndex: 0,
+              completedGameIds: [],
+              startedAt: null,
+              updatedAt: serverTimestamp(),
+            }).catch(console.error)
 
-          setProgress({
-            uid,
-            currentLocationIndex: 0,
-            completedGameIds: [],
-          })
-        }
-        setLoading(false)
-      },
-      (err) => {
-        console.error('Progress snapshot error:', err)
-        setLoading(false)
-      }
-    )
+            const initialProgress: ParticipantProgress = { uid, participantId: progressRef.id, currentLocationIndex: 0, completedGameIds: [] }
+            progressCache.set(uid, initialProgress)
+            setProgress(initialProgress)
+          }
+          setLoading(false)
+        },
+        (err) => {
+          console.error('Progress snapshot error:', err)
+          setLoading(false)
+        },
+      )
+    }).catch((error) => {
+      console.error('Could not resolve the candidate progress document:', error)
+      if (!cancelled) setLoading(false)
+    })
 
-    return () => unsub()
+    return () => {
+      cancelled = true
+      unsubscribe?.()
+    }
   }, [uid])
 
   const currentLocationIndex = progress?.currentLocationIndex ?? 0

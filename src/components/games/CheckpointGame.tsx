@@ -20,9 +20,9 @@ const CARGO_DOCKS = [1, 3, 0, 2]
 const PULSE_SEQUENCE = [2, 0, 3, 1, 2, 3]
 const TOSS_SEQUENCE = [2, 0, 1]
 
-type Props = { locationIndex: number; alreadyDone?: boolean; preview?: boolean; onComplete: () => Promise<void> }
+type Props = { locationIndex: number; alreadyDone?: boolean; preview?: boolean; screenSpace?: boolean; onComplete: () => Promise<void> }
 
-export function CheckpointGame({ locationIndex, alreadyDone = false, preview = false, onComplete }: Props) {
+export function CheckpointGame({ locationIndex, alreadyDone = false, preview = false, screenSpace = false, onComplete }: Props) {
   const index = Math.max(0, Math.min(locationIndex, 6))
   const game = CHECKPOINT_GAMES[index]
   const [anchored, setAnchored] = useState(false)
@@ -43,6 +43,9 @@ export function CheckpointGame({ locationIndex, alreadyDone = false, preview = f
   const [lastToss, setLastToss] = useState<{ lane: number; power: number; hit: boolean; missType: 'short' | 'overpowered' | 'wrong-ring' | null } | null>(null)
   const completeRef = useRef(onComplete)
   const completionStarted = useRef(alreadyDone)
+  const startARRef = useRef<(() => Promise<void>) | null>(null)
+  const [arState, setARState] = useState<'checking' | 'unsupported' | 'ready' | 'searching' | 'placed' | 'error'>(preview || screenSpace ? 'placed' : 'checking')
+  const [arMessage, setARMessage] = useState('')
   completeRef.current = onComplete
 
   useEffect(() => {
@@ -205,12 +208,22 @@ export function CheckpointGame({ locationIndex, alreadyDone = false, preview = f
 
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', color: '#fff' }}>
-      <Suspense fallback={null}><ARScene3D gameType={game.type} locationIndex={index} anchored={anchored} state={sceneState} onAction={handleAction} /></Suspense>
+      <Suspense fallback={null}><ARScene3D
+        gameType={game.type}
+        locationIndex={index}
+        screenSpace={screenSpace || preview}
+        anchored={anchored}
+        state={sceneState}
+        onAction={handleAction}
+        onARState={(next, message) => { setARState(next); setARMessage(message ?? '') }}
+        onARPlaced={(placed) => setAnchored(placed)}
+        startARRef={startARRef}
+      /></Suspense>
       <div style={{ position: 'absolute', left: 16, right: 16, top: 'max(84px,calc(var(--safe-top) + var(--banner-h) + 40px))', display: 'flex', justifyContent: 'space-between', fontSize: 9, fontWeight: 900, letterSpacing: '.15em', textShadow: '0 2px 9px #000,0 0 10px rgba(37,218,255,.8)', pointerEvents: 'none' }}>
         <span style={{ color: '#baf8ff' }}>BEACON {String(index + 1).padStart(2, '0')}</span>
-        <span style={{ color: '#fff2a6' }}>{anchored ? 'POSITION LOCKED' : 'SIGNAL DETECTED'}</span>
+        <span style={{ color: '#fff2a6' }}>{anchored ? 'PUZZLE ACTIVE' : 'SIGNAL DETECTED'}</span>
       </div>
-      {!anchored && <div style={{ position: 'absolute', left: 18, right: 18, bottom: preview ? '17vh' : 'calc(var(--safe-bottom) + var(--nav-h) + 24px)', textAlign: 'center', fontSize: 10, fontWeight: 850, letterSpacing: '.13em', color: '#fff5a8', textShadow: '0 0 12px #ff7131,0 2px 7px #000', pointerEvents: 'none' }}>TAP THE 3D BEACON TO LOCK ITS POSITION</div>}
+      {!anchored && <div role="status" style={{ position: 'absolute', left: 16, right: 16, bottom: preview ? '17vh' : 'calc(var(--safe-bottom) + var(--nav-h) + 18px)', textAlign: 'center', fontSize: 11, fontWeight: 850, color: '#fff5a8', textShadow: '0 0 12px #ff7131,0 2px 7px #000', pointerEvents: 'none' }}>TAP THE 3D BEACON TO START</div>}
       {anchored && <div style={{ position: 'absolute', left: 16, right: 16, bottom: preview ? '17vh' : 'calc(var(--safe-bottom) + var(--nav-h) + 18px)', display: 'grid', gap: 5, justifyItems: 'center', textAlign: 'center', pointerEvents: 'none', textShadow: '0 2px 8px #000,0 0 13px rgba(0,0,0,.8)' }}>
         <span style={{ color: '#fff', fontWeight: 800, fontSize: 17, letterSpacing: '-.015em' }}>{done ? 'SIGNAL RESTORED' : game.title}</span>
         <span style={{ color: '#f5fbff', fontSize: 11, lineHeight: 1.4, maxWidth: 370 }}>{done ? 'Task complete · fragment recovered' : game.story}</span>
